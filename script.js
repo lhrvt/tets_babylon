@@ -1,5 +1,4 @@
 window.addEventListener('DOMContentLoaded', function() {
-
     var canvas = document.getElementById('renderCanvas');
     var engine = new BABYLON.Engine(canvas, true);
 
@@ -18,27 +17,47 @@ window.addEventListener('DOMContentLoaded', function() {
         var ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 50, height: 50}, scene);
         ground.position.y = -0.05;
 
+        // Create walls
+        var wallHeight = 2;
+        var wallThickness = 0.5;
+        var wallLength = 50;
+        var halfWallLength = wallLength / 2;
+
+        var createWall = function(name, position, rotation) {
+            var wall = BABYLON.MeshBuilder.CreateBox(name, {height: wallHeight, width: wallThickness, depth: wallLength}, scene);
+            wall.position = position;
+            wall.rotation = rotation;
+            wall.isPickable = false;
+            return wall;
+        };
+
+        var walls = [
+            createWall("wall1", new BABYLON.Vector3(halfWallLength, wallHeight / 2, 0), new BABYLON.Vector3(0, 0, 0)),
+            createWall("wall2", new BABYLON.Vector3(-halfWallLength, wallHeight / 2, 0), new BABYLON.Vector3(0, 0, 0)),
+            createWall("wall3", new BABYLON.Vector3(0, wallHeight / 2, halfWallLength), new BABYLON.Vector3(0, BABYLON.Tools.ToRadians(90), 0)),
+            createWall("wall4", new BABYLON.Vector3(0, wallHeight / 2, -halfWallLength), new BABYLON.Vector3(0, BABYLON.Tools.ToRadians(90), 0))
+        ];
+
         // Function to import and setup the model with animations
         function importModel(modelName, onModelImported, index) {
             BABYLON.SceneLoader.ImportMesh(null, "./model/", modelName, scene, function (meshes, particleSystems, skeletons, animationGroups) {
-                if (meshes.length > 0 && animationGroups.length >= 3) { // Update to 3 if we have 3 animations now
+                if (meshes.length > 0 && animationGroups.length >= 3) {
                     var model = meshes[0];
                     model.name = modelName + "_" + index;
                     model.position = new BABYLON.Vector3(0, 0, 0);
                     model.scaling = new BABYLON.Vector3(1, 1, 1);
-                    model.rotationQuaternion = null; // Disable quaternion rotation
+                    model.rotationQuaternion = null;
 
                     // Create a bounding box collider for the model
                     var boundingBox = BABYLON.MeshBuilder.CreateBox(model.name + "_collider", {size: 1}, scene);
-                    boundingBox.scaling = new BABYLON.Vector3(1, 1, 1); // Adjust the size as needed
+                    boundingBox.scaling = new BABYLON.Vector3(1, 1, 1);
                     boundingBox.position = model.position.clone();
-                    boundingBox.visibility = 0; // Make the collider invisible
+                    boundingBox.visibility = 0;
 
                     // Parent the collider to the model
                     boundingBox.parent = model;
-                    boundingBox.isPickable = false; // Make sure the collider itself is not pickable
-                    
-                    // Call the callback function with the imported model, animations, and collider
+                    boundingBox.isPickable = false;
+
                     onModelImported(model, animationGroups[0], animationGroups[1], animationGroups[2], boundingBox);
                 } else {
                     console.error("Model or animations not found in " + modelName);
@@ -54,7 +73,8 @@ window.addEventListener('DOMContentLoaded', function() {
                 this.collisionAnimation = collisionAnimation;
                 this.collider = collider;
                 this.isRunning = false;
-        
+                this.isAttractedToCenter = false;
+
                 this.switchToRun();
             }
         
@@ -64,14 +84,12 @@ window.addEventListener('DOMContentLoaded', function() {
         
             switchToRun() {
                 if (!this.isRunning) {
-                    console.log("running");
                     this.idleAnimation.stop();
                     this.runAnimation.start(true);
                     this.isRunning = true;
         
                     setTimeout(() => {
                         let randomValue = this.getRandomNumberBetween1And2();
-                        console.log("Random value:", randomValue);
                         if (randomValue === 1) {
                             this.switchToIdle();
                         } else {
@@ -84,21 +102,19 @@ window.addEventListener('DOMContentLoaded', function() {
         
             switchToIdle() {
                 if (this.isRunning) {
-                    console.log("idle");
                     this.runAnimation.stop();
                     this.idleAnimation.start(true);
                     this.isRunning = false;
         
                     setTimeout(() => {
                         let randomValue = this.getRandomNumberBetween1And2();
-                        console.log("Random value:", randomValue);
                         if (randomValue === 1) {
                             this.switchToRun();
                         } else {
                             this.isRunning = true;
                             this.switchToIdle();
                         }
-                    }, 6000 );
+                    }, 6000);
                 }
             }
         
@@ -117,6 +133,12 @@ window.addEventListener('DOMContentLoaded', function() {
 
                     this.detectCollisions();
                 }
+
+                if (this.isAttractedToCenter) {
+                    let center = new BABYLON.Vector3(0, 0, 0);
+                    let direction = center.subtract(this.model.position).normalize();
+                    this.model.position.addInPlace(direction.scale(0.07));
+                }
             }
 
             detectCollisions() {
@@ -130,6 +152,15 @@ window.addEventListener('DOMContentLoaded', function() {
                             // Handle collision
                             this.handleCollision(otherController);
                         }
+                    }
+                }
+
+                // Check for collisions with walls
+                for (let wall of walls) {
+                    if (this.collider.intersectsMesh(wall, false)) {
+                        console.log("Collision detected between chicken and wall");
+                        // Handle wall collision
+                        this.handleWallCollision();
                     }
                 }
             }
@@ -146,15 +177,15 @@ window.addEventListener('DOMContentLoaded', function() {
             
                 // Use GSAP to animate the models
                 gsap.to(this.model.position, {
-                    x: this.model.position.x + direction.x *1.5 , // Move backward in x direction
-                    z: this.model.position.z + direction.z  *1.5, // Move backward in z direction
+                    x: this.model.position.x + direction.x * 1.5, // Move backward in x direction
+                    z: this.model.position.z + direction.z * 1.5, // Move backward in z direction
                     duration: 0.7,
                     ease: "power2.out" // Adjust easing function as needed
                 });
             
                 gsap.to(otherController.model.position, {
-                    x: otherController.model.position.x + -direction.x  , // Move backward in x direction
-                    z: otherController.model.position.z + -direction.z  , // Move backward in z direction
+                    x: otherController.model.position.x - direction.x, // Move backward in x direction
+                    z: otherController.model.position.z - direction.z, // Move backward in z direction
                     duration: 0.7,
                     ease: "power2.out" // Adjust easing function as needed
                 });
@@ -179,11 +210,25 @@ window.addEventListener('DOMContentLoaded', function() {
                     }
                 });
             }
+
+            handleWallCollision() {
+                // Attract the model to the center
+                this.isAttractedToCenter = true;
+                this.runAnimation.stop();
+                this.idleAnimation.stop();
+                this.collisionAnimation.start(true);
+
+                setTimeout(() => {
+                    this.isAttractedToCenter = false;
+                    this.collisionAnimation.stop();
+                    this.switchToIdle();
+                }, 1000); // Attract for 2 seconds
+            }
         }
 
         function getRandomSpawnPosition(maxRange) {
-            var x = Math.random() * maxRange * 2 - maxRange; // Random number between -maxRange and maxRange
-            var z = Math.random() * maxRange * 2 - maxRange; // Random number between -maxRange and maxRange
+            var x = Math.random() * maxRange * 2 - maxRange;
+            var z = Math.random() * maxRange * 2 - maxRange;
             return new BABYLON.Vector3(x, 0, z);
         }
         
@@ -196,27 +241,26 @@ window.addEventListener('DOMContentLoaded', function() {
         
             function addModel(modelName, spawnPosition, index) {
                 importModel(modelName, function (model, idleAnimation, runAnimation, collisionAnimation, collider) {
-                    model.position = spawnPosition; // Set the spawn position
+                    model.position = spawnPosition;
                     let modelController = new ModelController(model, idleAnimation, runAnimation, collisionAnimation, collider);
                     modelControllers.push(modelController);
                 }, index);
             }
         
             // Import multiple models with different spawn positions
-            const modelNames = ["poulet_orange.glb", "poulet_orange.glb", "poulet_orange.glb", "poulet_orange.glb", "poulet_orange.glb","poulet_orange.glb", "poulet_orange.glb", "poulet_orange.glb"];
+            const modelNames = ["poulet_blue.glb", "poulet_green.glb", "poulet_orange.glb", "poulet_pink.glb", "poulet_yellow.glb", "poulet_red.glb", "poulet_panda.glb","poulet_blue.glb", "poulet_green.glb", "poulet_orange.glb", "poulet_pink.glb", "poulet_yellow.glb", "poulet_red.glb", "poulet_panda.glb", "poulet_blue.glb", "poulet_green.glb", "poulet_orange.glb", "poulet_pink.glb", "poulet_yellow.glb", "poulet_red.glb", "poulet_panda.glb"    ];
             modelNames.forEach((modelName, index) => {
                 addModel(modelName, getRandomSpawnPosition(10), index);
             });
         }
         
-        // Setup the scene and import models
         setupScene();
         
         var pipeline = new BABYLON.DefaultRenderingPipeline(
-            "defaultPipeline", // The name of the pipeline
-            true, // Do you want HDR?
-            scene, // The scene instance
-            [camera] // The list of cameras to be attached to
+            "defaultPipeline",
+            true,
+            scene,
+            [camera]
         );
 
         var hdrTexture = new BABYLON.HDRCubeTexture("garden.hdr", scene, 256);
